@@ -4,7 +4,7 @@ Project configuration and hyperparameters.
 
 # Tokenizer and Model constraints
 VOCAB_SIZE = 32_000
-CONTEXT_LEN = 1024
+CONTEXT_LEN = 2048
 D_MODEL = 768
 N_HEADS = 12
 N_KV_HEADS = 4  # GQA: Number of Key/Value heads
@@ -13,7 +13,7 @@ D_FFN = 2048  # SwiGLU: target ~100M total params with D_MODEL=768
 DROPOUT = 0.1
 
 # Training hyperparameters
-BATCH_SIZE = 8
+BATCH_SIZE = 256
 LR = 3e-4
 WARMUP_STEPS = 2_000
 MAX_STEPS = 100_000

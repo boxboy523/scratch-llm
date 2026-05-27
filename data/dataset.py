@@ -89,6 +89,8 @@ class KoIterableDataset(IterableDataset):
                 continue
             
             cleaned_text = clean_wikipedia_text(text)
+            if len(cleaned_text) > 100_000:
+                cleaned_text = cleaned_text[:100_000]
             tokens = self.tokenizer.encode(cleaned_text)
             buffer.extend(tokens)
             
