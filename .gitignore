@@ -1,0 +1,5 @@
+.direnv/
+.pytest_cache/
+.venv/
+__pycache__/
+artifacts/
