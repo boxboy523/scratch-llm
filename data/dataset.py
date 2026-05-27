@@ -87,8 +87,13 @@ class KoIterableDataset(IterableDataset):
 
     def __iter__(self):
         buffer = []
+        count = 0
         for item in self.dataset:
             text = item["text"]
+            count += 1
+            if count % 10 == 0:
+                print(".", end="", flush=True)  # Progress indicator
+            
             if not is_quality_text(text, min_score=config.MIN_QUALITY_SCORE):
                 continue
             

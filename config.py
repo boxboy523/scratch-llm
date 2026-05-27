@@ -13,7 +13,7 @@ D_FFN = 2048  # SwiGLU: target ~100M total params with D_MODEL=768
 DROPOUT = 0.1
 
 # Training hyperparameters
-BATCH_SIZE = 32
+BATCH_SIZE = 256
 LR = 3e-4
 WARMUP_STEPS = 2_000
 MAX_STEPS = 100_000
