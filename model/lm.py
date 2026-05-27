@@ -63,11 +63,11 @@ class KoLLM(nn.Module):
         self.freqs_cis = self.freqs_cis.to(h.device)
         freqs_cis = self.freqs_cis[:seq_len]
         
-        # Causal mask
-        mask = torch.full((seq_len, seq_len), float("-inf"), device=h.device)
-        mask = torch.triu(mask, diagonal=1)
+        # Causal mask for SDPA (boolean mask)
+        mask = torch.triu(torch.ones(seq_len, seq_len, device=h.device), diagonal=1).bool()
         
         for layer in self.layers:
+            # Note: attn_mask=True means positions to be masked out
             h = layer(h, freqs_cis, mask)
             
         h = self.norm(h)
