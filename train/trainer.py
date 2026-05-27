@@ -50,7 +50,12 @@ def run_training(model, dataset, start_step=0):
         num_training_steps=config.MAX_STEPS
     )
     
-    dataloader = DataLoader(dataset, batch_size=config.BATCH_SIZE)
+    dataloader = DataLoader(
+        dataset, 
+        batch_size=config.BATCH_SIZE, 
+        pin_memory=True,
+        num_workers=4
+    )
     data_iter = iter(dataloader)
     
     for step in range(start_step, config.MAX_STEPS):
