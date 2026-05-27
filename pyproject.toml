@@ -1,0 +1,20 @@
+[project]
+name = "scratch-llm"
+version = "0.1.0"
+description = "Korean 100M LLM from Scratch"
+requires-python = "==3.11.*"
+dependencies = [
+    "torch",
+    "transformers",
+    "datasets",
+    "tokenizers",
+    "pytest",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
