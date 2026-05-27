@@ -17,9 +17,15 @@
             python311
             uv
             stdenv.cc.cc.lib
+            libGL
+            glib
           ];
           shellHook = ''
-            export LD_LIBRARY_PATH=${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH
+            # 시스템 NVIDIA 드라이버 경로 추가 (Nix에서 GPU 인식을 위한 필수 설정)
+            export LD_LIBRARY_PATH=/run/opengl-driver/lib:/run/opengl-driver-32/lib:${pkgs.stdenv.cc.cc.lib}/lib:$LD_LIBRARY_PATH
+            
+            echo "✅ Nix GPU Environment Loaded"
+            echo "💡 If CUDA is still not detected, ensure you have run 'uv sync' after pyproject.toml update."
           '';
         };
       });
