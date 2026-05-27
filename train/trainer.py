@@ -40,6 +40,11 @@ def run_training(model, dataset, start_step=0):
     Main training loop.
     """
     device = get_device()
+    print(f"🚀 Training device: {device.upper()}")
+    if device.type == "cuda":
+        print(f"   - GPU: {torch.cuda.get_device_name(0)}")
+        print(f"   - VRAM: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+        
     model.to(device)
     optimizer = optim.AdamW(model.parameters(), lr=config.LR)
     
