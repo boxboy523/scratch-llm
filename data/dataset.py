@@ -5,6 +5,7 @@ Memory-efficient lazy dataset loading with manual interleaving.
 import os
 import torch
 import random
+import unicodedata
 from torch.utils.data import IterableDataset, DataLoader
 from datasets import load_dataset
 from tokenizers import Tokenizer, models, trainers, pre_tokenizers
@@ -12,29 +13,47 @@ from transformers import PreTrainedTokenizerFast
 from data.preprocess import is_quality_text, clean_wikipedia_text
 import config
 
+# Force HuggingFace to use minimal memory
+os.environ["HF_DATASETS_OFFLINE"] = "0"
+os.environ["HF_DATASETS_CACHE"] = "/tmp/hf_cache"
+os.environ["HF_DATASETS_IN_MEMORY_MAX_SIZE"] = "0"
 
 def manual_interleave_generator(tokenizer):
     """
-    Manually interleaves streaming datasets to guarantee minimal RAM usage.
+    Manually interleaves streaming datasets with ultra-defensive memory settings.
     """
-    # 1. Open individual streams
-    ko_wiki_iter = iter(load_dataset(config.DATASET_NAME, config.DATASET_CONFIG, split="train", streaming=True))
-    en_wiki_iter = iter(load_dataset(config.DATASET_NAME, config.EN_DATASET_CONFIG, split="train", streaming=True))
-    namu_iter = iter(load_dataset(config.NAMUWIKI_DATASET, split="train", streaming=True))
-    
-    iters = [ko_wiki_iter, en_wiki_iter, namu_iter]
+    try:
+        # We wrap each in a try-except to handle network hiccups in streaming
+        ko_wiki = load_dataset(config.DATASET_NAME, config.DATASET_CONFIG, split="train", streaming=True)
+        en_wiki = load_dataset(config.DATASET_NAME, config.EN_DATASET_CONFIG, split="train", streaming=True)
+        # NamuWiki can be the main memory hog, we'll try to load it separately
+        namu = load_dataset(config.NAMUWIKI_DATASET, split="train", streaming=True)
+        
+        ko_iter = iter(ko_wiki)
+        en_iter = iter(en_wiki)
+        namu_iter = iter(namu)
+    except Exception as e:
+        print(f"Error initializing streams: {e}")
+        return
+
+    iters = [ko_iter, en_iter, namu_iter]
     probs = [config.KO_WIKI_RATIO, config.EN_WIKI_RATIO, config.NAMU_RATIO]
     
     while True:
-        # Choose a dataset based on probabilities
-        chosen_iter = random.choices(iters, weights=probs, k=1)[0]
+        idx = random.choices(range(len(iters)), weights=probs, k=1)[0]
         try:
-            item = next(chosen_iter)
+            item = next(iters[idx])
             text = item.get("text", "")
-            if is_quality_text(text, min_score=config.MIN_QUALITY_SCORE):
+            if text and is_quality_text(text, min_score=config.MIN_QUALITY_SCORE):
                 yield clean_wikipedia_text(text)
         except StopIteration:
-            # If one stream ends (unlikely with our limits), ignore it or stop
+            # Re-initialize the stream if it ends
+            if idx == 0: ko_iter = iter(ko_wiki)
+            elif idx == 1: en_iter = iter(en_wiki)
+            else: namu_iter = iter(namu)
+            iters[idx] = [ko_iter, en_iter, namu_iter][idx]
+            continue
+        except Exception:
             continue
 
 
