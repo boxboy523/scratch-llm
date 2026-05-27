@@ -13,8 +13,10 @@ D_FFN = 2048  # SwiGLU: target ~100M total params with D_MODEL=768
 DROPOUT = 0.1
 
 # Training hyperparameters
-BATCH_SIZE = 256
+BATCH_SIZE = 32  # Micro-batch size
+GRAD_ACC_STEPS = 8  # Effective batch size = 32 * 8 = 256
 LR = 3e-4
+
 WARMUP_STEPS = 2_000
 MAX_STEPS = 100_000
 GRAD_CLIP = 1.0
@@ -31,6 +33,7 @@ DATASET_NAME = "wikimedia/wikipedia"
 DATASET_CONFIG = "20231101.ko"
 EN_DATASET_CONFIG = "20231101.en"
 NAMUWIKI_DATASET = "heegyu/namuwiki-extracted"
+STREAMING = False
 
 # Mixing Ratios (Wiki KO : Wiki EN : NamuWiki)
 KO_WIKI_RATIO = 0.4
