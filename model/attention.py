@@ -41,13 +41,13 @@ def apply_rotary_emb(xq: torch.Tensor, xk: torch.Tensor, freqs_cis: torch.Tensor
     """
     xq_ = torch.view_as_complex(xq.float().reshape(*xq.shape[:-1], -1, 2))
     xk_ = torch.view_as_complex(xk.float().reshape(*xk.shape[:-1], -1, 2))
-    
+
     # Reshape freqs_cis for broadcasting: (1, seq_len, 1, head_dim // 2)
     freqs_cis = freqs_cis.view(1, xq_.shape[1], 1, xq_.shape[-1])
-    
+
     xq_out = torch.view_as_real(xq_ * freqs_cis).flatten(3)
     xk_out = torch.view_as_real(xk_ * freqs_cis).flatten(3)
-    
+
     return xq_out.type_as(xq), xk_out.type_as(xk)
 
 
@@ -84,7 +84,7 @@ class RoPEMultiHeadAttention(nn.Module):
         self.wk = nn.Linear(d_model, n_kv_heads * self.head_dim, bias=False)
         self.wv = nn.Linear(d_model, n_kv_heads * self.head_dim, bias=False)
         self.wo = nn.Linear(n_heads * self.head_dim, d_model, bias=False)
-        
+
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
@@ -100,29 +100,29 @@ class RoPEMultiHeadAttention(nn.Module):
             Output tensor with shape (batch, seq_len, d_model).
         """
         batch, seq_len, _ = x.shape
-        
+
         xq = self.wq(x).view(batch, seq_len, self.n_heads, self.head_dim)
         xk = self.wk(x).view(batch, seq_len, self.n_kv_heads, self.head_dim)
         xv = self.wv(x).view(batch, seq_len, self.n_kv_heads, self.head_dim)
-        
+
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis)
-        
+
         # Repeat KV heads for GQA
         xk = repeat_kv(xk, self.n_rep)
         xv = repeat_kv(xv, self.n_rep)
-        
+
         xq = xq.transpose(1, 2)  # (batch, n_heads, seq_len, head_dim)
         xk = xk.transpose(1, 2)
         xv = xv.transpose(1, 2)
-        
+
         # Use memory-efficient scaled_dot_product_attention (Flash Attention)
         # It handles scaling, masking, and dropout internally with much lower VRAM
         output = F.scaled_dot_product_attention(
-            xq, xk, xv, 
-            attn_mask=mask, 
+            xq, xk, xv,
+            attn_mask=mask,
             dropout_p=self.dropout.p if self.training else 0.0,
-            is_causal=False  # Mask is provided manually
+            is_causal=True
         )
-        
+
         output = output.transpose(1, 2).contiguous().view(batch, seq_len, self.d_model)
         return self.wo(output)
