@@ -13,17 +13,17 @@ D_FFN = 2048  # SwiGLU: target ~100M total params with D_MODEL=768
 DROPOUT = 0.1
 
 # Training hyperparameters
-BATCH_SIZE = 32  # Micro-batch size
-GRAD_ACC_STEPS = 8  # Effective batch size = 32 * 8 = 256
-LR = 3e-4
+BATCH_SIZE = 4  # Micro-batch size
+GRAD_ACC_STEPS = 32  # Effective batch size = 32 * 4 = 128
+LR = 4e-4
 
-WARMUP_STEPS = 2_000
-MAX_STEPS = 100_000
+WARMUP_STEPS = 200
+MAX_STEPS = 4000
 GRAD_CLIP = 1.0
 
 # Logging and Checkpointing
-LOG_EVERY = 100
-SAVE_EVERY = 1_000
+LOG_EVERY = 20
+SAVE_EVERY = 200
 MIN_QUALITY_SCORE = 0.6  # Threshold for advanced quality filtering
 
 # Paths
@@ -36,6 +36,6 @@ NAMUWIKI_DATASET = "heegyu/namuwiki-extracted"
 STREAMING = False
 
 # Mixing Ratios (Wiki KO : Wiki EN : NamuWiki)
-KO_WIKI_RATIO = 0.4
-EN_WIKI_RATIO = 0.2
-NAMU_RATIO = 0.4
+KO_WIKI_RATIO = 0.2
+EN_WIKI_RATIO = 0.1
+NAMU_RATIO = 0.7
