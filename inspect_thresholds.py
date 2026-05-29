@@ -6,7 +6,7 @@ Helps in manual verification and tuning of the CUT_PERCENTILE.
 import numpy as np
 import torch
 from datasets import load_dataset
-from data.preprocess import get_quality_score
+from data.preprocess import get_quality_score, clean_text
 from data.dataset import get_filtered_culturax, compute_source_threshold
 import config
 
@@ -37,9 +37,9 @@ def analyze_thresholds():
     Computes thresholds for each source and prints samples near them.
     """
     sources = {
-        "Wikipedia": (load_dataset(config.WIKI_DATASET, config.WIKI_KO, split="train"), config.WIKI_CUT_RATIO),
-        "NamuWiki": (load_dataset(config.NAMUWIKI_DATASET, split="train"), config.NAMU_CUT_RATIO),
-        "CulturaX": (get_filtered_culturax(), config.CULTURAX_CUT_RATIO)
+        "Wikipedia": (load_dataset(config.WIKI_DATASET, config.WIKI_KO, split="train").map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)}), config.WIKI_CUT_RATIO),
+        "NamuWiki": (load_dataset(config.NAMUWIKI_DATASET, split="train").map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)}), config.NAMU_CUT_RATIO),
+        "CulturaX": (get_filtered_culturax().map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)}), config.CULTURAX_CUT_RATIO)
     }
     
     for name, (ds, ratio) in sources.items():

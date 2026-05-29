@@ -47,8 +47,9 @@ def get_filtered_culturax():
     Loads and dedups CulturaX against Wikipedia and NamuWiki.
     Outputs: filtered dataset
     """
-    ds = load_dataset(config.CULTURAX_DATASET, "ko", split="train", streaming=False)
+    ds = load_dataset(config.CULTURAX_DATASET, "ko", split="train", streaming=config.STREAMING)
     # Filter out Wikipedia and NamuWiki duplicates
+
     ds = ds.filter(
         lambda x: "ko.wikipedia.org" not in x["url"] and "namu.wiki" not in x["url"]
     )
@@ -84,7 +85,16 @@ def load_multi_source_dataset():
     # 1. Group TinyStories to preserve context
     stories = Dataset.from_generator(lambda: group_tinystories(stories_raw))
 
-    # 2. Compute dynamic thresholds
+    # 2. Apply Initial Cleaning (Line filtering, URL removal, etc.)
+    # We clean first so that quality scores are calculated on the actual content
+    wiki = wiki.map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)})
+    namu = namu.map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)})
+    culturax = culturax.map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)})
+
+    # TinyStories: No quality filtering, use synthetic cleaning mode
+    stories = stories.map(lambda x: {"text": clean_text(x["text"], is_synthetic=True)})
+
+    # 3. Compute dynamic thresholds on cleaned text
     sources_to_filter = {
         "wiki": wiki,
         "namu": namu,
@@ -97,20 +107,13 @@ def load_multi_source_dataset():
     }
     thresholds = compute_all_thresholds(sources_to_filter, config.SAMPLE_SIZE, ratios)
 
-    # 3. Apply Quality Filtering and Cleaning
+    # 4. Apply Document-level Quality Filtering
     wiki = wiki.filter(lambda x: get_quality_score(x["text"]) >= thresholds["wiki"])
-    wiki = wiki.map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)})
-    
     namu = namu.filter(lambda x: get_quality_score(x["text"]) >= thresholds["namu"])
-    namu = namu.map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)})
-    
     culturax = culturax.filter(lambda x: get_quality_score(x["text"]) >= thresholds["culturax"])
-    culturax = culturax.map(lambda x: {"text": clean_text(x["text"], is_synthetic=False)})
-    
-    # TinyStories: No quality filtering, use synthetic cleaning mode
-    stories = stories.map(lambda x: {"text": clean_text(x["text"], is_synthetic=True)})
 
     datasets = [wiki, namu, culturax, stories]
+
     probs = [config.KO_WIKI_RATIO, config.NAMU_RATIO, config.CULTURAX_RATIO, config.TINYSTORIES_RATIO]
 
     interleaved = interleave_datasets(datasets, probabilities=probs, seed=config.SEED)
@@ -146,7 +149,7 @@ def train_bpe_tokenizer(vocab_size: int, save_path: str) -> PreTrainedTokenizerF
         if batch: yield batch
 
     tokenizer.train_from_iterator(batch_iterator(), trainer=trainer)
-    
+
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     tokenizer.save(os.path.join(save_path, "tokenizer.json"))
@@ -177,7 +180,7 @@ class KoIterableDataset(IterableDataset):
             text = item["text"]
             if len(text) < config.DOC_MIN_LENGTH:
                 continue
-            
+
             tokens = self.tokenizer.encode(text)
             tokens.append(self.eos_id) # Mark doc boundary
             buffer.extend(tokens)
