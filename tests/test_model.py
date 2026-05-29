@@ -35,7 +35,8 @@ def test_model_forward_pass():
         n_heads=4,
         n_kv_heads=2,
         n_layers=2,
-        d_ffn=256
+        d_ffn=256,
+        skip_param_assertion=True
     )
     model.eval()
     
@@ -59,7 +60,8 @@ def test_model_loss_calculation():
         n_heads=4,
         n_kv_heads=2,
         n_layers=2,
-        d_ffn=256
+        d_ffn=256,
+        skip_param_assertion=True
     )
     
     batch_size = 2

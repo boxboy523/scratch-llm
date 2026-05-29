@@ -5,6 +5,7 @@ Transformer Block with RMSNorm and SwiGLU.
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import config
 from model.attention import RoPEMultiHeadAttention
 
 
@@ -13,13 +14,17 @@ class RMSNorm(nn.Module):
     Root Mean Square Layer Normalization.
     """
 
-    def __init__(self, dim: int, eps: float = 1e-6):
+    def __init__(self, dim: int, eps: float = config.RMS_NORM_EPS):
         super().__init__()
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
     def _norm(self, x: torch.Tensor) -> torch.Tensor:
-        """Applies the RMSNorm normalization."""
+        """
+        Applies the RMSNorm normalization.
+        Inputs: x (torch.Tensor)
+        Outputs: normalized tensor (torch.Tensor)
+        """
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

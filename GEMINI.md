@@ -70,7 +70,7 @@ Document-level threshold is estimated per source (distributions differ), NOT glo
 - TinyStories is already clean/synthetic → NO document quality filtering applied.
 - Implement as a pure fn returning `{source_name: threshold}`. Filter each source
   BEFORE `interleave_datasets`, so each stream uses its own threshold.
-- Constants: SAMPLE_SIZE, CUT_PERCENTILE, MIN_LINE_LEN, LINE_SCORE_THRESHOLD,
+- Constants: SAMPLE_SIZE, DATA_CUT_RATIO, MIN_LINE_LEN, LINE_SCORE_THRESHOLD,
   DOC_MIN_LENGTH in `config.py` (no magic numbers).
 
 ### CulturaX Dedup
@@ -137,7 +137,9 @@ TINYSTORIES_RATIO = 0.2
 
 # filtering
 SAMPLE_SIZE         = 10_000
-CUT_PERCENTILE      = 30
+WIKI_CUT_RATIO      = 0.3
+NAMU_CUT_RATIO      = 0.3
+CULTURAX_CUT_RATIO  = 0.3
 DOC_MIN_LENGTH      = 50
 MIN_LINE_LEN        = 20
 LINE_SCORE_THRESHOLD = 0.2

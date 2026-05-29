@@ -4,7 +4,7 @@ All functions are pure and adhere to the project's coding standards.
 """
 
 import re
-from config import MIN_LINE_LEN, LINE_SCORE_THRESHOLD
+from config import MIN_LINE_LEN, LINE_SCORE_THRESHOLD, SENTENCE_UNIT, NEWLINE_PENALTY, DENSITY_THRESHOLD, DENSITY_WEIGHT
 
 
 def remove_references(text: str) -> str:
@@ -28,10 +28,11 @@ def replace_urls(text: str) -> str:
 
 def strip_delimiters(text: str) -> str:
     """
-    Strips TinyStories <|endoftext|> delimiter.
+    Strips TinyStories <|endoftext|> delimiter literal.
     Inputs: text (str)
     Outputs: cleaned text (str)
     """
+    # Keep as literal to match raw dataset precisely
     return text.replace("<|endoftext|>", "")
 
 
@@ -65,9 +66,14 @@ def get_quality_score(text: str) -> float:
     lang_ratio = lang_chars / total
     num_ratio = nums / total
     newline_ratio = newlines / total
-    sentence_density = sentences / (total / 50) if total > 0 else 0
+    sentence_density = sentences / (total / SENTENCE_UNIT) if total > 0 else 0
 
-    return lang_ratio - newline_ratio * 3 - num_ratio - max(0, 0.3 - sentence_density) * 0.5
+    return (
+        lang_ratio
+        - newline_ratio * NEWLINE_PENALTY
+        - num_ratio
+        - max(0, DENSITY_THRESHOLD - sentence_density) * DENSITY_WEIGHT
+    )
 
 
 def filter_lines(text: str) -> str:
@@ -90,15 +96,19 @@ def filter_lines(text: str) -> str:
     return "\n".join(valid_lines)
 
 
-def clean_text(text: str) -> str:
+def clean_text(text: str, is_synthetic: bool = False) -> str:
     """
     Composes pure functions to clean and filter text.
-    Inputs: text (str)
+    Inputs: text (str), is_synthetic (bool)
     Outputs: fully cleaned text (str)
     """
     text = remove_references(text)
     text = replace_urls(text)
     text = strip_delimiters(text)
-    text = filter_lines(text)
+    
+    # Skip quality filtering for synthetic data like TinyStories
+    if not is_synthetic:
+        text = filter_lines(text)
+        
     text = normalize_whitespace(text)
     return text

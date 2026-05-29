@@ -6,9 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import config
 
 
-def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0) -> torch.Tensor:
+def precompute_freqs_cis(dim: int, end: int, theta: float = config.ROPE_THETA) -> torch.Tensor:
     """
     Precomputes the frequency complex exponentials for RoPE.
 

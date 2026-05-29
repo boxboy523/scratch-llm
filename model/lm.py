@@ -22,7 +22,8 @@ class KoLLM(nn.Module):
         n_kv_heads: int,
         n_layers: int,
         d_ffn: int,
-        dropout: float = 0.1
+        dropout: float = 0.1,
+        skip_param_assertion: bool = False
     ):
         super().__init__()
         self.context_len = context_len
@@ -42,6 +43,11 @@ class KoLLM(nn.Module):
 
         # Precompute RoPE frequencies
         self.freqs_cis = precompute_freqs_cis(d_model // n_heads, context_len)
+
+        # Assert parameter count within [90M, 110M] after construction
+        if not skip_param_assertion:
+            param_count = sum(p.numel() for p in self.parameters())
+            assert 90_000_000 <= param_count <= 110_000_000, f"Model has {param_count} params, expected [90M, 110M]"
 
     def forward(self, tokens: torch.Tensor, targets: torch.Tensor = None) -> tuple[torch.Tensor, torch.Tensor]:
         """

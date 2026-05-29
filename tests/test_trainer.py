@@ -19,7 +19,8 @@ def test_train_step():
         n_heads=2,
         n_kv_heads=1,
         n_layers=1,
-        d_ffn=64
+        d_ffn=64,
+        skip_param_assertion=True
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     batch = torch.randint(0, 100, (2, 17))
@@ -42,7 +43,8 @@ def test_checkpoint_save_load(tmp_path):
         n_heads=2,
         n_kv_heads=1,
         n_layers=1,
-        d_ffn=64
+        d_ffn=64,
+        skip_param_assertion=True
     )
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
     
@@ -58,7 +60,8 @@ def test_checkpoint_save_load(tmp_path):
         n_heads=2,
         n_kv_heads=1,
         n_layers=1,
-        d_ffn=64
+        d_ffn=64,
+        skip_param_assertion=True
     )
     optimizer_new = torch.optim.AdamW(model_new.parameters(), lr=1e-3)
     

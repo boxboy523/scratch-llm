@@ -6,6 +6,7 @@ Includes autoregressive generation with repetition penalty.
 import torch
 from model.lm import KoLLM
 from data.dataset import get_tokenizer
+from train.checkpoint import load_checkpoint
 import config
 
 
@@ -19,8 +20,6 @@ def generate(model, tokenizer, prompt: str, max_new_tokens: int, device: torch.d
     input_ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long).to(device)
     generated = []
     
-    penalty = 1.3
-    
     with torch.no_grad():
         for _ in range(max_new_tokens):
             # Truncate context to CONTEXT_LEN
@@ -28,12 +27,12 @@ def generate(model, tokenizer, prompt: str, max_new_tokens: int, device: torch.d
             logits, _ = model(current_input)
             next_token_logits = logits[0, -1, :]
             
-            # Apply repetition penalty
+            # Apply repetition penalty from config
             for token_id in set(generated):
                 if next_token_logits[token_id] > 0:
-                    next_token_logits[token_id] /= penalty
+                    next_token_logits[token_id] /= config.REPETITION_PENALTY
                 else:
-                    next_token_logits[token_id] *= penalty
+                    next_token_logits[token_id] *= config.REPETITION_PENALTY
             
             next_token = next_token_logits.argmax().unsqueeze(0).unsqueeze(0)
             input_ids = torch.cat([input_ids, next_token], dim=-1)
@@ -61,12 +60,8 @@ def main():
     )
     
     checkpoint_path = f"{config.CHECKPOINT_DIR}/latest.pt"
-    try:
-        checkpoint = torch.load(checkpoint_path, map_location=device)
-        model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Loaded checkpoint from {checkpoint_path}")
-    except FileNotFoundError:
-        print("No checkpoint found. Using initialized model.")
+    # Load model weights only (optimizer=None) as per TODO.md
+    load_checkpoint(model, None, checkpoint_path)
         
     model.to(device)
     
