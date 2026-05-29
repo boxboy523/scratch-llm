@@ -1,47 +1,86 @@
+"""
+Evaluation and text generation for the Korean LLM.
+Includes autoregressive generation with repetition penalty.
+"""
+
 import torch
-from data.dataset import get_tokenizer, KoIterableDataset
 from model.lm import KoLLM
-from train.checkpoint import load_checkpoint
+from data.dataset import get_tokenizer
 import config
 
-def bytes_to_unicode():
-    bs = list(range(ord("!"), ord("~")+1)) + list(range(ord("¡"), ord("¬")+1)) + list(range(ord("®"), ord("ÿ")+1))
-    cs = bs[:]
-    n = 0
-    for b in range(2**8):
-        if b not in bs:
-            bs.append(b)
-            cs.append(2**8+n)
-            n += 1
-    return dict(zip(bs, [chr(n) for n in cs]))
 
-def token_indices_to_string(tokenizer, indices):
-    byte_decoder = {v: k for k, v in bytes_to_unicode().items()}
-    tokens = tokenizer.convert_ids_to_tokens(indices)
-    text_bytes = bytes([byte_decoder.get(c, ord(c)) for c in "".join(tokens)])
-    return text_bytes.decode("utf-8", errors="ignore")
-device = torch.device("cuda")
-tokenizer = get_tokenizer(config.TOKENIZER_DIR)
-model = KoLLM(
-            vocab_size=config.VOCAB_SIZE,
-            context_len=config.CONTEXT_LEN,
-            d_model=config.D_MODEL,
-            n_heads=config.N_HEADS,
-            n_kv_heads=config.N_KV_HEADS,
-            n_layers=config.N_LAYERS,
-            d_ffn=config.D_FFN
-        )
-checkpoint = torch.load("artifacts/checkpoints/checkpoint_step_1000.pt")
-model.load_state_dict(checkpoint["model_state_dict"])
-model.to(device).eval()
+def generate(model, tokenizer, prompt: str, max_new_tokens: int, device: torch.device):
+    """
+    Generates text autoregressively with a repetition penalty.
+    Inputs: model, tokenizer, prompt (str), max_new_tokens (int), device
+    Outputs: generated text (str)
+    """
+    model.eval()
+    input_ids = torch.tensor([tokenizer.encode(prompt)], dtype=torch.long).to(device)
+    generated = []
+    
+    penalty = 1.3
+    
+    with torch.no_grad():
+        for _ in range(max_new_tokens):
+            # Truncate context to CONTEXT_LEN
+            current_input = input_ids[:, -config.CONTEXT_LEN:]
+            logits, _ = model(current_input)
+            next_token_logits = logits[0, -1, :]
+            
+            # Apply repetition penalty
+            for token_id in set(generated):
+                if next_token_logits[token_id] > 0:
+                    next_token_logits[token_id] /= penalty
+                else:
+                    next_token_logits[token_id] *= penalty
+            
+            next_token = next_token_logits.argmax().unsqueeze(0).unsqueeze(0)
+            input_ids = torch.cat([input_ids, next_token], dim=-1)
+            generated.append(next_token.item())
+            
+            if next_token.item() == tokenizer.eos_token_id:
+                break
+                
+    return tokenizer.decode(generated)
 
-dataset = KoIterableDataset(tokenizer, config.CONTEXT_LEN)
-batch = next(iter(torch.utils.data.DataLoader(dataset, batch_size=1)))
 
-inputs = batch[:, :-1].to(device)
-with torch.no_grad():
-    logits, _ = model(inputs)
-    pred = logits.argmax(-1)
+def main():
+    """Main evaluation script."""
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    tokenizer = get_tokenizer(config.TOKENIZER_DIR)
+    model = KoLLM(
+        vocab_size=config.VOCAB_SIZE,
+        context_len=config.CONTEXT_LEN,
+        d_model=config.D_MODEL,
+        n_heads=config.N_HEADS,
+        n_kv_heads=config.N_KV_HEADS,
+        n_layers=config.N_LAYERS,
+        d_ffn=config.D_FFN
+    )
+    
+    checkpoint_path = f"{config.CHECKPOINT_DIR}/latest.pt"
+    try:
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        model.load_state_dict(checkpoint["model_state_dict"])
+        print(f"Loaded checkpoint from {checkpoint_path}")
+    except FileNotFoundError:
+        print("No checkpoint found. Using initialized model.")
+        
+    model.to(device)
+    
+    prompts = [
+        "대한민국의 수도는 ",
+        "인공지능 기술의 미래는 ",
+        "오늘 날씨가 아주 "
+    ]
+    
+    for prompt in prompts:
+        output = generate(model, tokenizer, prompt, 50, device)
+        print(f"Prompt: {prompt}")
+        print(f"Generated: {output}\n")
 
-print("IN :", token_indices_to_string(tokenizer, inputs[0].tolist()))
-print("OUT:", token_indices_to_string(tokenizer, pred[0].tolist()))
+
+if __name__ == "__main__":
+    main()

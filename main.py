@@ -1,28 +1,36 @@
 """
-Entry point for training the Korean 100M LLM.
+Entry point for training the Korean-only 100M LLM.
+Integrates tokenizer training, model initialization, and the training loop.
 """
 
-import config
-from data.dataset import train_bpe_tokenizer, get_tokenizer, KoIterableDataset
-from model.lm import KoLLM, get_parameter_count
-from train.trainer import run_training
 import os
+import config
+from data.dataset import (
+    train_bpe_tokenizer,
+    get_tokenizer,
+    load_multi_source_dataset,
+    KoIterableDataset
+)
+from model.lm import KoLLM
+from train.trainer import run_training
 
 
 def main():
-    """Main execution function."""
+    """
+    Main execution function to orchestrate the training process.
+    """
     print("--- Korean 100M LLM from Scratch ---")
 
     # 1. Tokenizer
-    if not os.path.exists(os.path.join(config.TOKENIZER_DIR, "tokenizer.json")):
-        print("Training tokenizer on multi-source dataset (Wiki KO/EN + Namu)...")
+    tokenizer = get_tokenizer(config.TOKENIZER_DIR)
+    if not tokenizer:
+        print("Training tokenizer on multi-source Korean dataset...")
         tokenizer = train_bpe_tokenizer(
             config.VOCAB_SIZE,
             config.TOKENIZER_DIR
         )
     else:
-        print("Loading existing tokenizer...")
-        tokenizer = get_tokenizer(config.TOKENIZER_DIR)
+        print("Existing tokenizer loaded.")
 
     # 2. Model
     model = KoLLM(
@@ -34,13 +42,17 @@ def main():
         n_layers=config.N_LAYERS,
         d_ffn=config.D_FFN
     )
-
-    n_params = get_parameter_count(model)
-    print(f"Model initialized with {n_params:,} parameters.")
+    
+    # Verify parameter count
+    param_count = sum(p.numel() for p in model.parameters())
+    assert 90_000_000 <= param_count <= 110_000_000, f"Model has {param_count} params, expected [90M, 110M]"
+    print(f"Model initialized with {param_count:,} parameters.")
 
     # 3. Dataset & Training
-    print("Preparing bilingual dataset and starting training loop...")
+    print("Preparing multi-source dataset and starting training loop...")
+    raw_dataset = load_multi_source_dataset()
     dataset = KoIterableDataset(
+        raw_dataset,
         tokenizer,
         config.CONTEXT_LEN
     )

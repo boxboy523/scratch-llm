@@ -87,14 +87,13 @@ class RoPEMultiHeadAttention(nn.Module):
 
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
         """
         Forward pass for Multi-Head Attention (GQA).
 
         Args:
             x: Input tensor with shape (batch, seq_len, d_model).
             freqs_cis: RoPE frequency tensor with shape (seq_len, head_dim // 2).
-            mask: Optional causal mask with shape (seq_len, seq_len).
 
         Returns:
             Output tensor with shape (batch, seq_len, d_model).
@@ -119,7 +118,7 @@ class RoPEMultiHeadAttention(nn.Module):
         # It handles scaling, masking, and dropout internally with much lower VRAM
         output = F.scaled_dot_product_attention(
             xq, xk, xv,
-            attn_mask=mask,
+            attn_mask=None,
             dropout_p=self.dropout.p if self.training else 0.0,
             is_causal=True
         )

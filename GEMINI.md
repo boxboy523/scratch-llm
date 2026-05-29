@@ -22,7 +22,7 @@
 
 ---
 
-## Project: Korean 100M LLM from Scratch
+## Project: Korean ~100M LLM from Scratch
 
 ### Environment
 - Runtime managed by `flake.nix` + `uv`
@@ -30,86 +30,135 @@
 - Never use `pip install` directly; always `uv add` or edit `pyproject.toml`
 - Activate env via `uv run` or the flake devShell
 
-### Dataset
-- Primary: Korean Wikipedia HuggingFace dataset (`wikimedia/wikipedia`, `20231101.ko`)
-- Secondary: NamuWiki dump (`heegyu/namuwiki-extracted` or raw XML dump)
-- Preprocessing must be implemented as pure functions in `data/preprocess.py`
-- Quality filtering required: Korean character ratio ≥ 0.5, min length 50 chars
+### Datasets & Mixing
+Korean-only. English dropped entirely (wastes capacity on a 100M model).
+Mixing ratios (interleaved):
+- Korean Wikipedia (`wikimedia/wikipedia`, `20231101.ko`) — 0.2
+- NamuWiki (`heegyu/namuwiki-extracted`) — 0.2
+- CulturaX Korean (`uonlp/CulturaX`, `ko`) — 0.4
+- TinyStories Korean (`g0ster/TinyStories-Korean`) — 0.2
 
-### Model Spec
-- Architecture: Decoder-only Transformer (GPT-style)
-- Target size: ~100M parameters
-- Positional encoding: RoPE
-- Normalization: RMSNorm (pre-norm)
-- Activation: SwiGLU
-- Context length: 1024
-- Implement via raw `torch.nn` — do NOT use `transformers.AutoModel`; use `transformers` only for tokenizer and dataset utilities
+Rationale: for a 100M model the bottleneck is Korean structure acquisition, not
+knowledge capacity. TinyStories (simple, repetitive) helps basic grammar/word
+order; CulturaX adds web-text diversity; wiki/namu add clean expository style.
 
-### Tokenizer
-- Use `transformers.PreTrainedTokenizerFast` wrapping a trained `tokenizers` BPE model
-- Vocab size: 32000
-- Train tokenizer on the same dataset before model training
-- Save to `artifacts/tokenizer/`
+### Preprocessing (`data/preprocess.py`)
+All functions pure. Rename `clean_wikipedia_text` → `clean_text` (applies to all
+sources). Update every caller in `dataset.py`.
 
-### Code Standards
-Apply all rules from Section 2 above. Additional project-specific notes:
-- Every function must have a docstring (purpose / inputs / outputs)
-- Every module must have corresponding unit tests in `tests/`
-- Run tests immediately after writing or modifying code
-- `git push` after each completed feature
+`clean_text` responsibilities (compose small pure fns, ≤30 lines each):
+- Remove reference markers `[1]`, `[2]`, …
+- Replace URLs with a single space (integrate `replace_urls`; do NOT use a
+  `[URL]` placeholder token — model would learn to emit it)
+- Strip TinyStories `<|endoftext|>` delimiter (map to EOS at tokenization, see below)
+- Normalize whitespace
+- Line-level filtering: drop lines shorter than a MIN_LINE_LEN constant or with
+  per-line quality score below a FIXED low threshold (~0.2). Purpose is removing
+  buggy/noise lines only, so fixed threshold is fine.
 
-### Project Structure
-```
-.
-├── flake.nix
-├── pyproject.toml
-├── config.py          # all hyperparameters as constants
-├── data/
-│   ├── preprocess.py  # pure fn: load, filter, tokenize
-│   └── dataset.py     # torch Dataset wrapper
-├── model/
-│   ├── attention.py   # RoPE multi-head attention
-│   ├── block.py       # TransformerBlock (RMSNorm + SwiGLU MLP)
-│   └── lm.py          # full decoder LM, parameter count check
-├── train/
-│   ├── trainer.py     # training loop
-│   └── checkpoint.py  # save/load logic
-├── artifacts/
-│   ├── tokenizer/
-│   └── checkpoints/
-└── tests/
-    ├── test_preprocess.py
-    ├── test_model.py
-    └── test_trainer.py
-```
+`get_quality_score` changes:
+- `lang_chars` counts KOREAN syllables + allowed punctuation ONLY. Remove the
+  English-alphabet branch.
+- KEEP the `num_ratio` penalty — it usefully filters number-dump pages (stat
+  sites, tables). Normal prose only takes a small hit from dates/phone numbers.
+- Keep newline-ratio and sentence-density terms as-is.
 
-### Hyperparameter Reference (config.py)
+### Dynamic Per-Source Quality Threshold
+Document-level threshold is estimated per source (distributions differ), NOT global.
+- Sample ~10,000 docs per source, compute `get_quality_score`, take the Nth
+  percentile (default 30th → drop bottom 30%) as that source's threshold.
+- TinyStories is already clean/synthetic → NO document quality filtering applied.
+- Implement as a pure fn returning `{source_name: threshold}`. Filter each source
+  BEFORE `interleave_datasets`, so each stream uses its own threshold.
+- Constants: SAMPLE_SIZE, CUT_PERCENTILE, MIN_LINE_LEN, LINE_SCORE_THRESHOLD,
+  DOC_MIN_LENGTH in `config.py` (no magic numbers).
+
+### CulturaX Dedup
+CulturaX carries a `url` field. Drop rows whose URL contains `ko.wikipedia.org`
+or `namu.wiki` to avoid duplicating the wiki/namu sources. CulturaX is already
+mC4+OSCAR-filtered, so no heavy additional filtering beyond this + the dynamic
+threshold.
+
+### Dataset Iteration (`data/dataset.py`)
+- Keep the deque token-packing `IterableDataset`.
+- Append the tokenizer EOS token id at the end of EACH document's tokens before
+  extending the buffer. This marks document boundaries inside packed contexts so
+  the model does not learn spurious cross-document continuations.
+- Add `.shuffle(seed=SEED, buffer_size=SHUFFLE_BUFFER)` after interleave.
+
+### Model Spec (`model/`)
+- Decoder-only Transformer, target ~100M params, RoPE, RMSNorm (pre-norm), SwiGLU.
+- GQA: `N_HEADS=12`, `N_KV_HEADS=4`.
+- Weight tying between `tok_embeddings` and `output` head (saves ~24M params,
+  significant at this scale).
+- **Causal masking via `is_causal=True` in `scaled_dot_product_attention`.** Do
+  NOT pass a hand-built boolean upper-triangular mask — the previous bug attended
+  to FUTURE tokens (SDPA attends where mask is True), letting the model copy the
+  current token and collapsing loss toward 0. Remove manual mask construction in
+  `lm.py` and pass `mask=None` down.
+- Assert parameter count within [90M, 110M] after construction.
+
+### Training Schedule (WSD: Warmup–Stable–Decay)
+Two-phase plan:
+1. Phase 1 — Warmup then STABLE (constant) LR. Run long, watch the loss curve,
+   stop manually at a good checkpoint. No cosine-to-zero decay in this phase.
+2. Phase 2 (later) — Continued training from a chosen checkpoint with a short LR
+   cooldown (cosine/linear) to a non-zero floor for final stabilization.
+
+If a cosine schedule is used at all, the LR floor must be a non-zero `min_lr`
+(~10% of peak), never decay to 0 — the tail steps at ~0 LR are wasted otherwise.
+
+### Hyperparameters (`config.py`)
 ```python
 VOCAB_SIZE      = 32_000
-CONTEXT_LEN     = 1024
+CONTEXT_LEN     = 2048
 D_MODEL         = 768
 N_HEADS         = 12
+N_KV_HEADS      = 4
 N_LAYERS        = 12
-D_FFN           = D_MODEL * 4        # SwiGLU: split into two halves internally
+D_FFN           = 2048        # SwiGLU; tuned so total ~100M with D_MODEL=768
 DROPOUT         = 0.1
-BATCH_SIZE      = 32
-LR              = 3e-4
-WARMUP_STEPS    = 2_000
-MAX_STEPS       = 100_000
+
+BATCH_SIZE      = 4           # micro-batch (>=8 OOMs at ctx 2048 on 16GB)
+GRAD_ACC_STEPS  = 32          # effective batch = 128
+LR              = 4e-4        # scaled for effective batch 128
+WARMUP_STEPS    = 400
+MAX_STEPS       = 8000        # large; stop manually on plateau
 GRAD_CLIP       = 1.0
-LOG_EVERY       = 100
-SAVE_EVERY      = 1_000
-```
 
-### Parameter Count Verification
-After building the model, assert the parameter count is within [90M, 110M]:
-```python
-n_params = sum(p.numel() for p in model.parameters())
-assert 90_000_000 <= n_params <= 110_000_000, f"Unexpected param count: {n_params}"
-```
+LOG_EVERY       = 20
+SAVE_EVERY      = 200
 
-### Training Notes
-- Use `torch.cuda.amp` (bfloat16) for mixed precision
-- Gradient accumulation if needed to hit effective batch size
-- Log loss to stdout every `LOG_EVERY` steps; optionally wandb
-- Dataset streaming preferred (`datasets` library `streaming=True`) to avoid full disk dump
+# data mixing
+KO_WIKI_RATIO   = 0.2
+NAMU_RATIO      = 0.2
+CULTURAX_RATIO  = 0.4
+TINYSTORIES_RATIO = 0.2
+
+# filtering
+SAMPLE_SIZE         = 10_000
+CUT_PERCENTILE      = 30
+DOC_MIN_LENGTH      = 50
+MIN_LINE_LEN        = 20
+LINE_SCORE_THRESHOLD = 0.2
+SHUFFLE_BUFFER      = 10_000
+SEED                = 42
+```
+Note: English dataset config and ratio are removed from `config.py`.
+
+### Evaluation (`eval_model.py`)
+- Load checkpoint via `model.load_state_dict(checkpoint["model_state_dict"])`
+  (optimizer load must be optional / skippable).
+- Generate AUTOREGRESSIVELY: feed back the predicted token each step, take
+  `logits[:, -1, :]` for the next token, truncate context to last `CONTEXT_LEN`.
+- Apply a repetition penalty (divide logits of already-generated token ids by a
+  constant ~1.3) to curb the repeat-loop failure mode of small/under-trained
+  models. Temperature optional; top-k/top-p are NOT helpful for repetition.
+- Do not name the eval file `inspect.py` (shadows stdlib `inspect`).
+
+### Code Standards
+Apply all rules from Section 2. Project-specific reminders:
+- Hyperparameters & filtering constants live in `config.py` (no magic numbers).
+- Docstring (purpose / inputs / outputs) on every function.
+- Unit tests in `tests/` for every module; run immediately after writing/editing.
+- `git push` after each completed feature.

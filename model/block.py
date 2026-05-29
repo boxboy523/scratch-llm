@@ -73,19 +73,18 @@ class TransformerBlock(nn.Module):
         self.attention_norm = RMSNorm(d_model)
         self.ffn_norm = RMSNorm(d_model)
 
-    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
         """
         Forward pass for the Transformer Block.
         
         Args:
             x: Input tensor with shape (batch, seq_len, d_model).
             freqs_cis: RoPE frequency tensor with shape (seq_len, head_dim // 2).
-            mask: Optional causal mask with shape (seq_len, seq_len).
             
         Returns:
             Output tensor with shape (batch, seq_len, d_model).
         """
         # Pre-norm architecture
-        h = x + self.attention(self.attention_norm(x), freqs_cis, mask)
+        h = x + self.attention(self.attention_norm(x), freqs_cis)
         out = h + self.feed_forward(self.ffn_norm(h))
         return out
